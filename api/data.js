@@ -1,0 +1,392 @@
+// Vercel Serverless Function — Google Sheets 데이터를 안전하게 프록시
+// 인증: 서비스 계정 (환경변수 GOOGLE_SERVICE_ACCOUNT_JSON)
+// 캐시: Vercel Edge 60초 (s-maxage)
+
+const { google } = require('googleapis');
+
+const SPREADSHEET_ID = '1K13KEhv4hkHZsfg78Zh5WrdO4QdYcvUkVqEA6TJqxRI';
+
+const PRODUCT_NAMES = {
+  'B0DT65LLG9': 'Soothing Calm Toner Pad',
+  'B0DT6H5XCD': 'Soothing Calm Mask',
+  'B0DTK6XK2C': 'Cool Moist Mask',
+  'B0DTNVRCTT': 'Nutritious Watery Essence',
+  'B0DTP3FKQT': 'Yulmu Scrub Wash-Off Pack',
+  'B0DTP96WSR': 'Soothing Calm Cream',
+  'B0DTPDW468': 'Soothing Calm Ampoule',
+  'B0DTPDX9YP': 'Kaolin Purifying Wash Off Pack',
+  'B0DZWY6VTY': 'Peach Fit Collagen Cream',
+  'B0DZWZK6V4': 'Peach Fit Collagen Gel Mask',
+  'B0DZXD2RHJ': 'Vita PDRN Ampoule',
+  'B0DZXFD933': 'Calendula Calming Cleansing Foam',
+  'B0F1CT92CB': 'Soothing Calm Cream (Refill)',
+  'B0GMWK135T': 'Soothing & Hydration Skin Duo',
+  'B0GMWK722T': 'Calendula BHA + Heartleaf CICA Set',
+  'B0GN3N62BB': 'Soothing Calm Ampoule + Cream Set',
+  'B0GN3PGM4J': 'Soothing Calm Ampoule+Cream+Refill Set',
+  'B0GN3Q3PZX': 'Soothing Calm Cream + Refill Set',
+  'B0GN41NSY6': 'Soothing Calm Cream + Toner Pad Set',
+  'B0GRFWFLZ3': 'Complete Glow & Firming Skincare Set',
+  'B0GTSDQ15X': 'Korean Pore Cleansing Mask Duo',
+  'B0GTSKB31K': 'CICA Calming Hydration Set',
+  'B0GTSKBDT3': 'Korean Cooling & Barrier Care Set',
+  'B0GTSKV88M': 'Peach Fit Collagen Firming Set'
+};
+
+const PRODUCT_COLORS = {
+  'B0DT65LLG9': '#6c8ef7',
+  'B0DT6H5XCD': '#10b981',
+  'B0DTK6XK2C': '#f59e0b',
+  'B0DTNVRCTT': '#ec4899',
+  'B0DTP3FKQT': '#8b5cf6',
+  'B0DTP96WSR': '#14b8a6',
+  'B0DTPDW468': '#f97316',
+  'B0DTPDX9YP': '#06b6d4',
+  'B0DZWY6VTY': '#a3e635',
+  'B0DZWZK6V4': '#fb7185',
+  'B0DZXD2RHJ': '#22d3ee',
+  'B0DZXFD933': '#facc15',
+  'B0F1CT92CB': '#a78bfa',
+  'B0GMWK135T': '#34d399',
+  'B0GMWK722T': '#fb923c',
+  'B0GN3N62BB': '#60a5fa',
+  'B0GN3PGM4J': '#f472b6',
+  'B0GN3Q3PZX': '#84cc16',
+  'B0GN41NSY6': '#e879f9',
+  'B0GRFWFLZ3': '#2dd4bf',
+  'B0GTSDQ15X': '#fbbf24',
+  'B0GTSKB31K': '#818cf8',
+  'B0GTSKBDT3': '#f87171',
+  'B0GTSKV88M': '#4ade80'
+};
+
+// ── 헬퍼 ──────────────────────────────────────────────
+function normalizeHeader(s) {
+  return String(s || '').toLowerCase()
+    .replace(/[()[\]{}]/g, '')
+    .replace(/[\u2010-\u2015\u2212]/g, '-')   // em/en/figure dashes → hyphen
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function findColIdx(headers, keyword) {
+  const kw = normalizeHeader(keyword);
+  for (let i = 0; i < headers.length; i++) {
+    if (normalizeHeader(headers[i]) === kw) return i;
+  }
+  for (let i = 0; i < headers.length; i++) {
+    if (normalizeHeader(headers[i]).indexOf(kw) > -1) return i;
+  }
+  return -1;
+}
+
+function toNum(v) {
+  if (typeof v === 'number') return v;
+  if (v === null || v === undefined || v === '') return 0;
+  return parseFloat(String(v).replace(/[$,%\s₩]/g, '')) || 0;
+}
+
+function normalizeDate(v) {
+  if (v === null || v === undefined || v === '') return '';
+  if (v instanceof Date) {
+    return v.toISOString().substring(0, 10);
+  }
+  if (typeof v === 'number') {
+    const d = new Date((v - 25569) * 86400 * 1000);
+    if (!isNaN(d.getTime())) return d.toISOString().substring(0, 10);
+  }
+  const s = String(v).trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0, 10);
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return m[3] + '-' + ('0' + m[1]).slice(-2) + '-' + ('0' + m[2]).slice(-2);
+  const p = new Date(s);
+  if (!isNaN(p.getTime())) return p.toISOString().substring(0, 10);
+  return '';
+}
+
+function parseMonthKey(v) {
+  if (v === null || v === undefined || v === '') return '';
+  if (v instanceof Date) return v.toISOString().substring(0, 7);
+  if (typeof v === 'number') {
+    if (v >= 1 && v <= 12 && v === Math.floor(v)) return String(v);
+    const d = new Date((v - 25569) * 86400 * 1000);
+    if (!isNaN(d.getTime())) return d.toISOString().substring(0, 7);
+  }
+  const s = String(v).trim();
+  if (!s) return '';
+  let m = s.match(/(\d{4})[년\-/.\s]+(\d{1,2})/);
+  if (m) return m[1] + '-' + ('0' + m[2]).slice(-2);
+  m = s.match(/^(\d{1,2})\s*월?$/);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    if (n >= 1 && n <= 12) return String(n);
+  }
+  return '';
+}
+
+// ── 시트 선택 로직 ─────────────────────────────────────
+async function getSheetMeta(sheets) {
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId: SPREADSHEET_ID,
+    fields: 'sheets(properties(title,gridProperties(rowCount,columnCount)))'
+  });
+  return meta.data.sheets.map(s => s.properties);
+}
+
+function pickRawSheet(allSheets, allValues) {
+  // Date + Sessions + Child ASIN 헤더가 모두 있는 시트 중 행이 가장 많은 것
+  let best = null;
+  for (const sh of allSheets) {
+    const vals = allValues[sh.title];
+    if (!vals || vals.length < 2) continue;
+    const header = (vals[0] || []).map(h => normalizeHeader(h));
+    const hasDate     = header.some(h => h === 'date' || h === '날짜');
+    const hasSessions = header.some(h => h.indexOf('session') > -1);
+    const hasChild    = header.some(h => h.indexOf('child asin') > -1 || h.indexOf('child') > -1 && h.indexOf('asin') > -1);
+    if (hasDate && hasSessions && hasChild) {
+      if (!best || vals.length > allValues[best.title].length) best = sh;
+    }
+  }
+  // 폴백: 가장 행 많은 시트 중 child asin이 있는 것
+  if (!best) {
+    for (const sh of allSheets) {
+      const vals = allValues[sh.title];
+      if (!vals || vals.length < 2) continue;
+      const header = (vals[0] || []).map(h => normalizeHeader(h));
+      if (header.some(h => h.indexOf('child') > -1 && h.indexOf('asin') > -1)) {
+        if (!best || vals.length > allValues[best.title].length) best = sh;
+      }
+    }
+  }
+  return best;
+}
+
+function pickGoalSheet(allSheets) {
+  // 1순위: 정확히 '목표 매출' 또는 '목표' 포함 (target/goal는 너무 광범위해서 후순위)
+  for (const sh of allSheets) {
+    const name = sh.title.replace(/\s/g, '');
+    if (name.indexOf('목표') > -1) return sh;
+  }
+  // 2순위: 영문 키워드 — 단, 'targeting' 같이 다른 의미는 제외
+  for (const sh of allSheets) {
+    const lower = sh.title.toLowerCase();
+    if (lower.indexOf('targeting') > -1) continue; // 광고 타겟팅 리포트 제외
+    if (/(^|[\s_-])goal($|[\s_-])/.test(lower) || /(^|[\s_-])target($|[\s_-])/.test(lower) || lower.indexOf('monthly goal') > -1) {
+      return sh;
+    }
+  }
+  return null;
+}
+
+function pickInfoSheet(allSheets) {
+  for (const sh of allSheets) {
+    const upper = sh.title.replace(/\s/g, '').toUpperCase();
+    if (upper === 'ASIN-INFO' || upper === 'ASININFO' || upper === 'PRODUCT' || upper === '제품') return sh;
+  }
+  return null;
+}
+
+// ── 파서 ───────────────────────────────────────────────
+function parseRawRows(values) {
+  if (!values || values.length < 2) return [];
+  const headers = values[0];
+  const idx = {
+    month:        findColIdx(headers, 'month'),
+    week:         findColIdx(headers, 'week'),
+    weekCode:     findColIdx(headers, '월-주차'),
+    date:         findColIdx(headers, 'date'),
+    parent:       findColIdx(headers, 'parent asin'),
+    child:        findColIdx(headers, 'child asin'),
+    sessions:     findColIdx(headers, 'sessions - total'),
+    sessionsB2B:  findColIdx(headers, 'sessions - total - b2b'),
+    pageViews:    findColIdx(headers, 'page views - total'),
+    pageViewsB2B: findColIdx(headers, 'page views - total - b2b'),
+    buyBox:       findColIdx(headers, 'featured offer (buy box) percentage'),
+    units:        findColIdx(headers, 'units ordered'),
+    unitsB2B:     findColIdx(headers, 'units ordered - b2b'),
+    cvr:          findColIdx(headers, 'unit session percentage'),
+    sales:        findColIdx(headers, 'ordered product sales'),
+    salesB2B:     findColIdx(headers, 'ordered product sales - b2b'),
+    orderItems:   findColIdx(headers, 'total order items')
+  };
+
+  const cellStr = (r, i) => (i < 0 || i >= r.length) ? '' : String(r[i] ?? '').trim();
+  const cellNum = (r, i) => (i < 0 || i >= r.length) ? 0  : toNum(r[i]);
+
+  const out = [];
+  for (let i = 1; i < values.length; i++) {
+    const r = values[i];
+    const dateStr = normalizeDate(idx.date >= 0 ? r[idx.date] : null);
+    if (!dateStr) continue;
+    const childAsin = cellStr(r, idx.child);
+    if (!childAsin) continue;
+
+    out.push({
+      month: cellStr(r, idx.month),
+      week: cellStr(r, idx.week),
+      weekCode: cellStr(r, idx.weekCode),
+      date: dateStr,
+      parentAsin: cellStr(r, idx.parent),
+      childAsin: childAsin,
+      sessions: cellNum(r, idx.sessions),
+      sessionsB2B: cellNum(r, idx.sessionsB2B),
+      pageViews: cellNum(r, idx.pageViews),
+      pageViewsB2B: cellNum(r, idx.pageViewsB2B),
+      buyBox: cellNum(r, idx.buyBox),
+      units: cellNum(r, idx.units),
+      unitsB2B: cellNum(r, idx.unitsB2B),
+      cvr: cellNum(r, idx.cvr) * 100,
+      sales: cellNum(r, idx.sales),
+      salesB2B: cellNum(r, idx.salesB2B),
+      orderItems: cellNum(r, idx.orderItems)
+    });
+  }
+  return out;
+}
+
+function parseInfoSheet(values) {
+  const map = {};
+  const knownAsins = [];
+  if (!values || values.length < 2) return { map, knownAsins };
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i] || [];
+    const asin = String(row[0] || '').trim();
+    const name = String(row[1] || '').trim();
+    if (asin.indexOf('B0') === 0 && name) {
+      map[asin] = name;
+      knownAsins.push(asin);
+    }
+  }
+  return { map, knownAsins };
+}
+
+function parseGoalSheet(values) {
+  const goals = {};
+  if (!values || values.length < 1) return goals;
+
+  // 케이스 1: 가로형 — 어느 행이 헤더(월키 3개+)인지 찾고, 다음 행을 값으로
+  for (let rowH = 0; rowH < Math.min(3, values.length); rowH++) {
+    const monthCols = [];
+    const row = values[rowH] || [];
+    for (let c = 0; c < row.length; c++) {
+      const key = parseMonthKey(row[c]);
+      if (key) monthCols.push({ col: c, key });
+    }
+    if (monthCols.length >= 3 && rowH + 1 < values.length) {
+      let found = 0;
+      for (const mc of monthCols) {
+        const v = toNum((values[rowH + 1] || [])[mc.col]);
+        if (v) { goals[mc.key] = v; found++; }
+      }
+      if (found >= 3) return goals;
+    }
+  }
+
+  // 케이스 2: 세로형 — 가장 많이 매칭되는 (월컬럼, 값컬럼) 페어
+  let bestPair = null, bestCount = 0;
+  const maxCol = Math.max(...values.map(r => r.length));
+  for (let mc = 0; mc < maxCol; mc++) {
+    for (let vc = 0; vc < maxCol; vc++) {
+      if (mc === vc) continue;
+      const tmp = {};
+      let cnt = 0;
+      for (let r = 0; r < values.length; r++) {
+        const row = values[r] || [];
+        const key = parseMonthKey(row[mc]);
+        const val = toNum(row[vc]);
+        if (key && val) { tmp[key] = val; cnt++; }
+      }
+      if (cnt > bestCount) { bestCount = cnt; bestPair = tmp; }
+    }
+  }
+  return bestPair || {};
+}
+
+// ── 메인 핸들러 ────────────────────────────────────────
+let cached = null; // 메모리 캐시 (인스턴스 살아있는 동안)
+
+module.exports = async (req, res) => {
+  try {
+    const fresh = req.query && req.query.fresh === '1';
+    const now = Date.now();
+    if (!fresh && cached && (now - cached.at) < 60_000) {
+      res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
+      res.setHeader('X-Cache', 'HIT');
+      return res.status(200).json(cached.data);
+    }
+
+    const credsRaw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    if (!credsRaw) {
+      return res.status(500).json({ ok: false, error: 'GOOGLE_SERVICE_ACCOUNT_JSON 환경변수 미설정' });
+    }
+    const credentials = JSON.parse(credsRaw);
+
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly']
+    });
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    const sheetProps = await getSheetMeta(sheets);
+
+    // 모든 시트 데이터 한 번에 불러오기 (batchGet)
+    const ranges = sheetProps.map(s => `'${s.title.replace(/'/g, "''")}'`);
+    const batch = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId: SPREADSHEET_ID,
+      ranges,
+      valueRenderOption: 'UNFORMATTED_VALUE',
+      dateTimeRenderOption: 'FORMATTED_STRING'
+    });
+
+    const allValues = {};
+    batch.data.valueRanges.forEach((vr, i) => {
+      allValues[sheetProps[i].title] = vr.values || [];
+    });
+
+    const rawSheet  = pickRawSheet(sheetProps, allValues);
+    const infoSheet = pickInfoSheet(sheetProps);
+    const goalSheet = pickGoalSheet(sheetProps);
+
+    const rows         = rawSheet  ? parseRawRows(allValues[rawSheet.title]) : [];
+    const productInfo  = infoSheet ? parseInfoSheet(allValues[infoSheet.title]) : { map: {}, knownAsins: [] };
+    const monthlyGoals = goalSheet ? parseGoalSheet(allValues[goalSheet.title]) : {};
+
+    // 폴백: ASIN-INFO 비어있으면 PRODUCT_NAMES 사용
+    if (productInfo.knownAsins.length === 0) {
+      for (const asin of Object.keys(PRODUCT_NAMES)) {
+        productInfo.map[asin] = PRODUCT_NAMES[asin];
+        productInfo.knownAsins.push(asin);
+      }
+    }
+
+    const data = {
+      ok: true,
+      rows,
+      productMap: productInfo.map,
+      knownAsins: productInfo.knownAsins,
+      productColors: PRODUCT_COLORS,
+      monthlyGoals,
+      updatedAt: new Date().toISOString(),
+      diag: {
+        rawSheet: rawSheet ? rawSheet.title : null,
+        rowCount: rows.length,
+        goalSheet: goalSheet ? goalSheet.title : null,
+        goalKeys: Object.keys(monthlyGoals).length,
+        allSheets: sheetProps.map(s => ({
+          title: s.title,
+          rows: s.gridProperties && s.gridProperties.rowCount,
+          headers: ((allValues[s.title] || [])[0] || []).slice(0, 25)
+        }))
+      }
+    };
+
+    cached = { data, at: now };
+
+    res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
+    res.setHeader('X-Cache', 'MISS');
+    res.status(200).json(data);
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e), stack: e.stack });
+  }
+};
