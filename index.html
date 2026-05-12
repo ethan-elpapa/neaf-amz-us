@@ -498,6 +498,90 @@
     .grid-4 { grid-template-columns: 1fr; }
     .header { flex-direction: column; gap: 10px; }
   }
+
+  /* ── 재고 대시보드 전용 (rejuall 양식) ───────── */
+  .inv-kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 20px; }
+  .inv-kpi {
+    background: #fff; border: 1px solid var(--border);
+    border-top: 3px solid var(--blue);
+    border-radius: 12px; padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 12px rgba(0,0,0,.04);
+  }
+  .inv-kpi .label { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: .2px; }
+  .inv-kpi .value { font-size: 24px; font-weight: 700; color: #1f3864; margin-top: 6px; line-height: 1.1; }
+  .inv-kpi .unit  { font-size: 12px; color: var(--muted); margin-left: 2px; font-weight: 500; }
+  .inv-kpi.acc-transit { border-top-color: #0ea5e9; }
+  .inv-kpi.acc-3pl     { border-top-color: #10b981; }
+  .inv-kpi.acc-avail   { border-top-color: #f97316; }
+  .inv-kpi.acc-fc      { border-top-color: #ef4444; }
+  .inv-kpi.acc-grand   { border-top-color: #7c3aed; }
+  @media (max-width: 900px) { .inv-kpi-grid { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 600px) { .inv-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+
+  /* 공급망 흐름 */
+  .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .flow-node {
+    background: linear-gradient(135deg, #f9fafb, #fff);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 10px;
+    text-align: center;
+    position: relative;
+  }
+  .flow-node .icon { font-size: 22px; margin-bottom: 4px; }
+  .flow-node .n-label { font-size: 11px; color: var(--muted); font-weight: 600; }
+  .flow-node .n-value { font-size: 20px; font-weight: 700; color: #1f3864; margin-top: 4px; }
+  .flow-node .n-sub   { font-size: 10px; color: var(--muted); margin-top: 3px; }
+  .flow-node::after {
+    content: "→";
+    position: absolute;
+    right: -10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #cbd5e1;
+    font-weight: 700;
+    font-size: 18px;
+    z-index: 2;
+  }
+  .flow-node:last-child::after { content: ""; }
+  @media (max-width: 900px) {
+    .flow { grid-template-columns: repeat(3, 1fr); }
+    .flow-node::after { content: ""; }
+  }
+  @media (max-width: 600px) {
+    .flow { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* 재고 테이블 (rejuall 양식) */
+  .inv-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 1000px; }
+  .inv-table thead th {
+    background: #eef3fb;
+    color: #1f3864;
+    font-weight: 700;
+    padding: 10px 12px;
+    border-bottom: 2px solid #d9e1f2;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .inv-table thead th.grand-th { background: #ddd6fe; color: #5b21b6; }
+  .inv-table tbody td { padding: 9px 12px; border-bottom: 1px solid var(--border); text-align: right; }
+  .inv-table tbody td.product { text-align: left; font-weight: 600; color: var(--text); }
+  .inv-table tbody td.asin { font-family: monospace; font-size: 11px; color: var(--muted); }
+  .inv-table tbody td.grand { background: rgba(124, 58, 237, .06); font-weight: 700; color: #5b21b6; }
+  .inv-table tbody td.dash, .inv-table tbody td .dash { color: #cbd5e1; }
+  .inv-table tbody tr:hover { background: #f9fafb; }
+  .inv-table tfoot td {
+    background: #eef3fb;
+    color: #1f3864;
+    font-weight: 700;
+    padding: 11px 12px;
+    text-align: right;
+  }
+  .inv-table tfoot td.grand { background: #ddd6fe; color: #5b21b6; }
+
+  /* 흐름 컬러 라벨 (테이블 헤더 위) */
+  .inv-legend { font-size: 12px; color: var(--muted); padding: 0 4px 12px; }
+  .inv-legend b { color: var(--text); font-weight: 700; }
 </style>
 </head>
 <body>
@@ -821,42 +905,79 @@
   </div>
   </div><!-- /view-product -->
 
-  <!-- ════════════ 재고 대시보드 뷰 ════════════ -->
+  <!-- ════════════ 재고 대시보드 뷰 (rejuall 양식) ════════════ -->
   <div id="view-inventory" class="view-section" style="display:none">
-    <div class="section-header" style="font-size:18px;margin-top:0">재고 대시보드</div>
-
-    <!-- 재고 요약 KPI -->
-    <div class="grid-4" id="invKpis" style="margin-bottom:20px">
-      <div class="card"><div class="card-title">SKU 수</div><div class="kpi-value blue" id="invKpiSku">—</div><div class="kpi-sub">관리 제품 수</div></div>
-      <div class="card"><div class="card-title">총 재고 (Grand Total)</div><div class="kpi-value green" id="invKpiTotal">—</div><div class="kpi-sub" id="invKpiTotalSub"></div></div>
-      <div class="card"><div class="card-title">FC 재고 (판매 가능)</div><div class="kpi-value pink" id="invKpiFc">—</div><div class="kpi-sub" id="invKpiAvail"></div></div>
-      <div class="card"><div class="card-title">이동/입고 중</div><div class="kpi-value yellow" id="invKpiInbound">—</div><div class="kpi-sub">3PL + Inbound</div></div>
+    <div class="section-header" style="font-size:18px;margin-top:0">
+      📦 재고 & 물류 대시보드
+      <span id="invUpdatedAt" style="font-size:11px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;margin-left:auto"></span>
     </div>
 
-    <!-- 재고 차트 -->
+    <!-- ① KPI 6개 -->
+    <div class="inv-kpi-grid">
+      <div class="inv-kpi"><div class="label">총 SKU 수</div><div class="value"><span id="invKpiSku">—</span><span class="unit"> 종</span></div></div>
+      <div class="inv-kpi acc-transit"><div class="label">이동 재고 (해상+항공)</div><div class="value"><span id="invKpiTransit">—</span><span class="unit"> EA</span></div></div>
+      <div class="inv-kpi acc-3pl"><div class="label">3PL 재고</div><div class="value"><span id="invKpiTpl">—</span><span class="unit"> EA</span></div></div>
+      <div class="inv-kpi acc-avail"><div class="label">Available (판매가능)</div><div class="value"><span id="invKpiAvail">—</span><span class="unit"> EA</span></div></div>
+      <div class="inv-kpi acc-fc"><div class="label">FC 총 재고</div><div class="value"><span id="invKpiFc">—</span><span class="unit"> EA</span></div></div>
+      <div class="inv-kpi acc-grand"><div class="label">총 재고 (전체)</div><div class="value"><span id="invKpiGrand">—</span><span class="unit"> EA</span></div></div>
+    </div>
+
+    <!-- ② 공급망 흐름 -->
     <div class="card" style="margin-bottom:20px">
-      <div class="card-title">제품별 재고 현황 (Grand Total 내림차순)</div>
-      <div class="chart-wrap" style="height:380px"><canvas id="chartInventory"></canvas></div>
+      <div class="card-title">📦 공급망 흐름 (Supply Chain Flow)</div>
+      <div class="flow">
+        <div class="flow-node"><div class="icon">🚚</div><div class="n-label">이동 재고</div><div class="n-value" id="flowTransit">—</div><div class="n-sub" id="flowTransitSub">—</div></div>
+        <div class="flow-node"><div class="icon">🏭</div><div class="n-label">3PL 재고</div><div class="n-value" id="flowTpl">—</div><div class="n-sub" id="flowTplSub">Withon9</div></div>
+        <div class="flow-node"><div class="icon">🛒</div><div class="n-label">Available</div><div class="n-value" id="flowAvail">—</div><div class="n-sub">판매 가능</div></div>
+        <div class="flow-node"><div class="icon">🔄</div><div class="n-label">FC 내 이동</div><div class="n-value" id="flowFcMove">—</div><div class="n-sub" id="flowFcMoveSub">Transfer · Process · IB</div></div>
+        <div class="flow-node"><div class="icon">📊</div><div class="n-label">FC 재고</div><div class="n-value" id="flowFc">—</div><div class="n-sub">판매 중</div></div>
+      </div>
     </div>
 
-    <!-- 재고 테이블 -->
+    <!-- ③ 차트 2개 -->
+    <div class="grid-2" style="margin-bottom:20px">
+      <div class="card">
+        <div class="card-title">📊 SKU별 재고/이동 현황 (단위: EA)</div>
+        <div class="chart-wrap" style="height:380px"><canvas id="chartInvBar"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">🥧 재고 위치별 비중</div>
+        <div class="chart-wrap" style="height:380px"><canvas id="chartInvPie"></canvas></div>
+      </div>
+    </div>
+
+    <!-- ④ SKU 재고 상세 테이블 -->
     <div class="card" style="margin-bottom:30px">
-      <div class="card-title">상세 재고 테이블 <span id="invUpdatedAt" style="font-size:11px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;margin-left:auto"></span></div>
+      <div class="card-title">SKU 재고 상세</div>
+      <div class="inv-legend">
+        <b style="color:#0369a1">이동 재고</b>(해상·항공) ·
+        <b style="color:#16a34a">3PL</b>(Withon9 · → 아마존) ·
+        <b style="color:#b45309">Available</b>(FC transfer · processing · Inbound · Total) ·
+        <b style="color:#5b21b6">FC 재고</b> + <b style="color:#5b21b6">총 재고</b>
+      </div>
       <div style="overflow-x:auto">
-        <table class="wow-table" id="invTable" style="min-width:1000px">
+        <table class="inv-table" id="invTable">
           <thead>
             <tr>
               <th style="text-align:left">제품명</th>
               <th>ASIN</th>
-              <th style="text-align:right">Available</th>
-              <th style="text-align:right">FC transfer</th>
-              <th style="text-align:right">Inbound</th>
-              <th style="text-align:right">Total</th>
-              <th style="text-align:right">FC 재고</th>
-              <th style="text-align:right;background:rgba(108,142,247,.08)">총 재고</th>
+              <th>카톤</th>
+              <th>해상</th>
+              <th>항공</th>
+              <th>3PL Withon9</th>
+              <th>→ 아마존</th>
+              <th>Available</th>
+              <th>FC transfer</th>
+              <th>FC processing</th>
+              <th>IB(working)</th>
+              <th>IB(shipped)</th>
+              <th>Total</th>
+              <th>FC 재고</th>
+              <th class="grand-th">총 재고</th>
             </tr>
           </thead>
           <tbody id="invTableBody"></tbody>
+          <tfoot id="invTableFoot"></tfoot>
         </table>
       </div>
     </div>
@@ -2209,14 +2330,14 @@ function bindControls() {
 }
 
 // ═══════════════════════════════════════════════════════
-//  재고 대시보드 — 별도 API (/api/inventory) 호출
+//  재고 대시보드 (rejuall 양식) — /api/inventory 호출
 // ═══════════════════════════════════════════════════════
-var INV_STATE = { loaded: false, rows: [], chart: null };
+var INV_STATE = { loaded: false, rows: [], chartBar: null, chartPie: null };
 
 function loadInventory() {
   if (INV_STATE.loaded) { renderInventory(); return; }
   var tbody = document.getElementById('invTableBody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">재고 데이터 불러오는 중...</td></tr>';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="15" style="text-align:center;color:var(--muted);padding:20px">재고 데이터 불러오는 중...</td></tr>';
 
   fetch('/api/inventory')
     .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -2228,96 +2349,166 @@ function loadInventory() {
       renderInventory();
     })
     .catch(function(e){
-      if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--red);padding:20px">⚠ 재고 데이터 로드 실패: ' + (e.message || e) + '</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="15" style="text-align:center;color:var(--red);padding:20px">⚠ 재고 데이터 로드 실패: ' + (e.message || e) + '</td></tr>';
     });
 }
 
 function renderInventory() {
   var rows = INV_STATE.rows || [];
   if (!rows.length) {
-    document.getElementById('invTableBody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">재고 데이터가 없습니다</td></tr>';
+    document.getElementById('invTableBody').innerHTML = '<tr><td colspan="15" style="text-align:center;color:var(--muted);padding:20px">재고 데이터가 없습니다</td></tr>';
     return;
   }
 
-  // 정렬 — 총 재고 내림차순
+  // 총 재고 내림차순 정렬
   var sorted = rows.slice().sort(function(a,b){ return (b.grandTotal||0) - (a.grandTotal||0); });
 
-  // KPI
-  var sumGrand = sorted.reduce(function(s,r){ return s + (r.grandTotal||0); }, 0);
-  var sumFc    = sorted.reduce(function(s,r){ return s + (r.fcStock||0); }, 0);
-  var sumAvail = sorted.reduce(function(s,r){ return s + (r.available||0); }, 0);
-  var sumInbound = sorted.reduce(function(s,r){
-    return s + (r.tpl||0) + (r.toAmz||0) + (r.fcTransfer||0) + (r.fcProcessing||0) + (r.inboundWorking||0) + (r.inboundShipped||0);
-  }, 0);
+  // 집계
+  var agg = sorted.reduce(function(a,r){
+    a.sea           += r.sea||0;
+    a.air           += r.air||0;
+    a.transit       += (r.sea||0) + (r.air||0) + (r.transit||0);
+    a.tpl           += r.tpl||0;
+    a.toAmz         += r.toAmz||0;
+    a.avail         += r.available||0;
+    a.fcTransfer    += r.fcTransfer||0;
+    a.fcProcessing  += r.fcProcessing||0;
+    a.inboundWorking+= r.inboundWorking||0;
+    a.inboundShipped+= r.inboundShipped||0;
+    a.fcStock       += r.fcStock||0;
+    a.grand         += r.grandTotal||0;
+    return a;
+  }, {sea:0,air:0,transit:0,tpl:0,toAmz:0,avail:0,fcTransfer:0,fcProcessing:0,inboundWorking:0,inboundShipped:0,fcStock:0,grand:0});
 
-  document.getElementById('invKpiSku').textContent      = sorted.length;
-  document.getElementById('invKpiTotal').textContent    = sumGrand.toLocaleString('en-US');
-  document.getElementById('invKpiTotalSub').textContent = sorted.length + '개 SKU 합산';
-  document.getElementById('invKpiFc').textContent       = sumFc.toLocaleString('en-US');
-  document.getElementById('invKpiAvail').textContent    = 'Available ' + sumAvail.toLocaleString('en-US');
-  document.getElementById('invKpiInbound').textContent  = sumInbound.toLocaleString('en-US');
+  var fcMove = agg.fcTransfer + agg.fcProcessing + agg.inboundWorking + agg.inboundShipped;
+  var fmtN = function(n){ return (Math.round(n||0)).toLocaleString('en-US'); };
 
+  // ① KPI 6개
+  document.getElementById('invKpiSku').textContent     = sorted.length;
+  document.getElementById('invKpiTransit').textContent = fmtN(agg.transit);
+  document.getElementById('invKpiTpl').textContent     = fmtN(agg.tpl);
+  document.getElementById('invKpiAvail').textContent   = fmtN(agg.avail);
+  document.getElementById('invKpiFc').textContent      = fmtN(agg.fcStock);
+  document.getElementById('invKpiGrand').textContent   = fmtN(agg.grand);
+
+  // ② 공급망 흐름
+  document.getElementById('flowTransit').textContent   = fmtN(agg.transit);
+  document.getElementById('flowTransitSub').textContent= '해상 ' + fmtN(agg.sea) + ' · 항공 ' + fmtN(agg.air);
+  document.getElementById('flowTpl').textContent       = fmtN(agg.tpl);
+  document.getElementById('flowTplSub').textContent    = 'Withon9 ' + fmtN(agg.tpl) + ' · →AMZ ' + fmtN(agg.toAmz);
+  document.getElementById('flowAvail').textContent     = fmtN(agg.avail);
+  document.getElementById('flowFcMove').textContent    = fmtN(fcMove);
+  document.getElementById('flowFcMoveSub').textContent = 'Tr ' + fmtN(agg.fcTransfer) + ' · IB ' + fmtN(agg.inboundWorking + agg.inboundShipped);
+  document.getElementById('flowFc').textContent        = fmtN(agg.fcStock);
+
+  // 갱신 시각
   var updEl = document.getElementById('invUpdatedAt');
   if (updEl && INV_STATE.updatedAt) {
-    updEl.textContent = '최종 갱신: ' + new Date(INV_STATE.updatedAt).toLocaleString('ko-KR');
+    updEl.textContent = '최종 갱신 ' + new Date(INV_STATE.updatedAt).toLocaleString('ko-KR');
   }
 
-  // 차트 — 제품별 stacked bar (Available / FC / Inbound / etc.)
-  if (INV_STATE.chart) { INV_STATE.chart.destroy(); INV_STATE.chart = null; }
-  var ctx = document.getElementById('chartInventory').getContext('2d');
+  // ③-1 SKU별 재고/이동 stacked bar
+  if (INV_STATE.chartBar) { INV_STATE.chartBar.destroy(); INV_STATE.chartBar = null; }
+  var barCtx = document.getElementById('chartInvBar').getContext('2d');
   var labels = sorted.map(function(r){ return r.name || r.asin; });
-  INV_STATE.chart = new Chart(ctx, {
+  INV_STATE.chartBar = new Chart(barCtx, {
     type: 'bar',
     data: {
       labels: labels,
       datasets: [
-        { label: 'Available',  data: sorted.map(function(r){ return r.available||0; }),       backgroundColor: '#10b981' },
-        { label: 'FC transfer',data: sorted.map(function(r){ return r.fcTransfer||0; }),      backgroundColor: '#6c8ef7' },
-        { label: 'Inbound',    data: sorted.map(function(r){ return (r.inboundWorking||0) + (r.inboundShipped||0); }), backgroundColor: '#f59e0b' },
-        { label: '3PL / 이동', data: sorted.map(function(r){ return (r.tpl||0) + (r.toAmz||0) + (r.transit||0) + (r.sea||0) + (r.air||0); }), backgroundColor: '#a78bfa' }
+        { label: '이동 재고', data: sorted.map(function(r){ return (r.sea||0) + (r.air||0) + (r.transit||0); }), backgroundColor: '#0ea5e9' },
+        { label: '3PL',       data: sorted.map(function(r){ return (r.tpl||0) + (r.toAmz||0); }),               backgroundColor: '#10b981' },
+        { label: 'FC 재고',   data: sorted.map(function(r){ return r.fcStock||0; }),                            backgroundColor: '#ef4444' },
+        { label: '총 재고',   data: sorted.map(function(r){ return r.grandTotal||0; }),                         backgroundColor: '#7c3aed', stack: 'total' }
       ]
     },
     options: {
       indexAxis: 'y',
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12, font: { size: 11 } } },
-        tooltip: {
-          callbacks: {
-            label: function(c){ return c.dataset.label + ': ' + (c.parsed.x||0).toLocaleString('en-US'); },
-            footer: function(items){
-              if (!items.length) return '';
-              var idx = items[0].dataIndex;
-              return '합계: ' + (sorted[idx].grandTotal||0).toLocaleString('en-US');
-            }
-          }
-        }
+        legend: { position: 'bottom', labels: { boxWidth: 12, padding: 10, font: { size: 11 } } },
+        tooltip: { callbacks: { label: function(c){ return c.dataset.label + ': ' + (c.parsed.x||0).toLocaleString('en-US') + ' EA'; } } }
       },
       scales: {
-        x: { stacked: true, beginAtZero: true, grid: { color: 'rgba(15,23,42,0.05)' }, ticks: { callback: function(v){ return v.toLocaleString('en-US'); } } },
-        y: { stacked: true, grid: { display: false } }
+        x: { beginAtZero: true, grid: { color: 'rgba(15,23,42,0.05)' }, ticks: { callback: function(v){ return v.toLocaleString('en-US'); } } },
+        y: { grid: { display: false }, ticks: { font: { size: 11 } } }
       }
     }
   });
 
-  // 테이블
-  function cell(n){ return n > 0 ? '<b>' + n.toLocaleString('en-US') + '</b>' : '<span style="color:#9ca3af">—</span>'; }
+  // ③-2 재고 위치별 비중 pie
+  if (INV_STATE.chartPie) { INV_STATE.chartPie.destroy(); INV_STATE.chartPie = null; }
+  var pieCtx = document.getElementById('chartInvPie').getContext('2d');
+  INV_STATE.chartPie = new Chart(pieCtx, {
+    type: 'doughnut',
+    data: {
+      labels: ['해상 발송', '항공 발송', '3PL', 'Available', 'FC transfer', 'FC processing', 'Inbound(shipped)'],
+      datasets: [{
+        data: [agg.sea, agg.air, agg.tpl, agg.avail, agg.fcTransfer, agg.fcProcessing, agg.inboundShipped],
+        backgroundColor: ['#0ea5e9','#7dd3fc','#16a34a','#ff9900','#ffb84d','#fcd34d','#fef3c7'],
+        borderColor: '#fff', borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '55%',
+      plugins: {
+        legend: { position: 'right', labels: { boxWidth: 12, padding: 8, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: function(c){
+              var total = c.dataset.data.reduce(function(s,v){return s+(v||0);},0);
+              var pct = total ? (c.parsed/total*100).toFixed(1) : '0';
+              return c.label + ': ' + (c.parsed||0).toLocaleString('en-US') + ' (' + pct + '%)';
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // ④ SKU 재고 상세 테이블
+  function cellNum(n){ return n > 0 ? '<b>' + n.toLocaleString('en-US') + '</b>' : '<span class="dash">—</span>'; }
   var html = '';
   for (var i = 0; i < sorted.length; i++) {
     var r = sorted[i];
-    var inboundSum = (r.inboundWorking||0) + (r.inboundShipped||0);
     html += '<tr>' +
-      '<td style="font-weight:600">' + (r.name || '—') + '</td>' +
-      '<td style="font-family:monospace;font-size:11px;color:var(--muted)">' + (r.asin || '') + '</td>' +
-      '<td style="text-align:right">' + cell(r.available) + '</td>' +
-      '<td style="text-align:right">' + cell(r.fcTransfer) + '</td>' +
-      '<td style="text-align:right">' + cell(inboundSum) + '</td>' +
-      '<td style="text-align:right">' + cell(r.total) + '</td>' +
-      '<td style="text-align:right">' + cell(r.fcStock) + '</td>' +
-      '<td style="text-align:right;background:rgba(108,142,247,.05);font-weight:700;color:var(--blue)">' + ((r.grandTotal||0).toLocaleString('en-US')) + '</td>' +
+      '<td class="product">' + (r.name || '—') + '</td>' +
+      '<td class="asin">' + (r.asin || '') + '</td>' +
+      '<td>' + cellNum(r.carton) + '</td>' +
+      '<td>' + cellNum(r.sea) + '</td>' +
+      '<td>' + cellNum(r.air) + '</td>' +
+      '<td>' + cellNum(r.tpl) + '</td>' +
+      '<td>' + cellNum(r.toAmz) + '</td>' +
+      '<td>' + cellNum(r.available) + '</td>' +
+      '<td>' + cellNum(r.fcTransfer) + '</td>' +
+      '<td>' + cellNum(r.fcProcessing) + '</td>' +
+      '<td>' + cellNum(r.inboundWorking) + '</td>' +
+      '<td>' + cellNum(r.inboundShipped) + '</td>' +
+      '<td>' + cellNum(r.total) + '</td>' +
+      '<td>' + cellNum(r.fcStock) + '</td>' +
+      '<td class="grand">' + (r.grandTotal||0).toLocaleString('en-US') + '</td>' +
     '</tr>';
   }
   document.getElementById('invTableBody').innerHTML = html;
+
+  // 합계 footer
+  document.getElementById('invTableFoot').innerHTML =
+    '<tr>' +
+    '<td colspan="2" style="text-align:right">합계</td>' +
+    '<td>—</td>' +
+    '<td>' + fmtN(agg.sea) + '</td>' +
+    '<td>' + fmtN(agg.air) + '</td>' +
+    '<td>' + fmtN(agg.tpl) + '</td>' +
+    '<td>' + fmtN(agg.toAmz) + '</td>' +
+    '<td>' + fmtN(agg.avail) + '</td>' +
+    '<td>' + fmtN(agg.fcTransfer) + '</td>' +
+    '<td>' + fmtN(agg.fcProcessing) + '</td>' +
+    '<td>' + fmtN(agg.inboundWorking) + '</td>' +
+    '<td>' + fmtN(agg.inboundShipped) + '</td>' +
+    '<td>—</td>' +
+    '<td>' + fmtN(agg.fcStock) + '</td>' +
+    '<td class="grand">' + fmtN(agg.grand) + '</td>' +
+    '</tr>';
 }
 </script>
 </body>
