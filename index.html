@@ -538,6 +538,7 @@
   <div class="nav-title">대시보드</div>
   <a href="#" class="nav-link active" data-view="overview">📊 Overview</a>
   <a href="#" class="nav-link" data-view="product">🛍️ 제품별 대시보드</a>
+  <a href="#" class="nav-link" data-view="inventory">📦 재고 대시보드</a>
 </aside>
 
 <main class="main" id="mainContent" style="display:none">
@@ -819,6 +820,47 @@
     </div>
   </div>
   </div><!-- /view-product -->
+
+  <!-- ════════════ 재고 대시보드 뷰 ════════════ -->
+  <div id="view-inventory" class="view-section" style="display:none">
+    <div class="section-header" style="font-size:18px;margin-top:0">재고 대시보드</div>
+
+    <!-- 재고 요약 KPI -->
+    <div class="grid-4" id="invKpis" style="margin-bottom:20px">
+      <div class="card"><div class="card-title">SKU 수</div><div class="kpi-value blue" id="invKpiSku">—</div><div class="kpi-sub">관리 제품 수</div></div>
+      <div class="card"><div class="card-title">총 재고 (Grand Total)</div><div class="kpi-value green" id="invKpiTotal">—</div><div class="kpi-sub" id="invKpiTotalSub"></div></div>
+      <div class="card"><div class="card-title">FC 재고 (판매 가능)</div><div class="kpi-value pink" id="invKpiFc">—</div><div class="kpi-sub" id="invKpiAvail"></div></div>
+      <div class="card"><div class="card-title">이동/입고 중</div><div class="kpi-value yellow" id="invKpiInbound">—</div><div class="kpi-sub">3PL + Inbound</div></div>
+    </div>
+
+    <!-- 재고 차트 -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">제품별 재고 현황 (Grand Total 내림차순)</div>
+      <div class="chart-wrap" style="height:380px"><canvas id="chartInventory"></canvas></div>
+    </div>
+
+    <!-- 재고 테이블 -->
+    <div class="card" style="margin-bottom:30px">
+      <div class="card-title">상세 재고 테이블 <span id="invUpdatedAt" style="font-size:11px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;margin-left:auto"></span></div>
+      <div style="overflow-x:auto">
+        <table class="wow-table" id="invTable" style="min-width:1000px">
+          <thead>
+            <tr>
+              <th style="text-align:left">제품명</th>
+              <th>ASIN</th>
+              <th style="text-align:right">Available</th>
+              <th style="text-align:right">FC transfer</th>
+              <th style="text-align:right">Inbound</th>
+              <th style="text-align:right">Total</th>
+              <th style="text-align:right">FC 재고</th>
+              <th style="text-align:right;background:rgba(108,142,247,.08)">총 재고</th>
+            </tr>
+          </thead>
+          <tbody id="invTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /view-inventory -->
 
 </main>
 </div>
@@ -2003,8 +2045,11 @@ function bindSidebar() {
 
       var ov = document.getElementById('view-overview');
       var pr = document.getElementById('view-product');
+      var iv = document.getElementById('view-inventory');
       if (ov) ov.style.display = (view === 'overview')  ? 'block' : 'none';
       if (pr) pr.style.display = (view === 'product')   ? 'block' : 'none';
+      if (iv) iv.style.display = (view === 'inventory') ? 'block' : 'none';
+      if (view === 'inventory') loadInventory();
 
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
@@ -2161,6 +2206,118 @@ function bindControls() {
       renderProductTrend();
     });
   }
+}
+
+// ═══════════════════════════════════════════════════════
+//  재고 대시보드 — 별도 API (/api/inventory) 호출
+// ═══════════════════════════════════════════════════════
+var INV_STATE = { loaded: false, rows: [], chart: null };
+
+function loadInventory() {
+  if (INV_STATE.loaded) { renderInventory(); return; }
+  var tbody = document.getElementById('invTableBody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">재고 데이터 불러오는 중...</td></tr>';
+
+  fetch('/api/inventory')
+    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(data){
+      if (!data.ok) throw new Error(data.error || 'API error');
+      INV_STATE.rows = data.rows || [];
+      INV_STATE.updatedAt = data.updatedAt;
+      INV_STATE.loaded = true;
+      renderInventory();
+    })
+    .catch(function(e){
+      if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--red);padding:20px">⚠ 재고 데이터 로드 실패: ' + (e.message || e) + '</td></tr>';
+    });
+}
+
+function renderInventory() {
+  var rows = INV_STATE.rows || [];
+  if (!rows.length) {
+    document.getElementById('invTableBody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">재고 데이터가 없습니다</td></tr>';
+    return;
+  }
+
+  // 정렬 — 총 재고 내림차순
+  var sorted = rows.slice().sort(function(a,b){ return (b.grandTotal||0) - (a.grandTotal||0); });
+
+  // KPI
+  var sumGrand = sorted.reduce(function(s,r){ return s + (r.grandTotal||0); }, 0);
+  var sumFc    = sorted.reduce(function(s,r){ return s + (r.fcStock||0); }, 0);
+  var sumAvail = sorted.reduce(function(s,r){ return s + (r.available||0); }, 0);
+  var sumInbound = sorted.reduce(function(s,r){
+    return s + (r.tpl||0) + (r.toAmz||0) + (r.fcTransfer||0) + (r.fcProcessing||0) + (r.inboundWorking||0) + (r.inboundShipped||0);
+  }, 0);
+
+  document.getElementById('invKpiSku').textContent      = sorted.length;
+  document.getElementById('invKpiTotal').textContent    = sumGrand.toLocaleString('en-US');
+  document.getElementById('invKpiTotalSub').textContent = sorted.length + '개 SKU 합산';
+  document.getElementById('invKpiFc').textContent       = sumFc.toLocaleString('en-US');
+  document.getElementById('invKpiAvail').textContent    = 'Available ' + sumAvail.toLocaleString('en-US');
+  document.getElementById('invKpiInbound').textContent  = sumInbound.toLocaleString('en-US');
+
+  var updEl = document.getElementById('invUpdatedAt');
+  if (updEl && INV_STATE.updatedAt) {
+    updEl.textContent = '최종 갱신: ' + new Date(INV_STATE.updatedAt).toLocaleString('ko-KR');
+  }
+
+  // 차트 — 제품별 stacked bar (Available / FC / Inbound / etc.)
+  if (INV_STATE.chart) { INV_STATE.chart.destroy(); INV_STATE.chart = null; }
+  var ctx = document.getElementById('chartInventory').getContext('2d');
+  var labels = sorted.map(function(r){ return r.name || r.asin; });
+  INV_STATE.chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Available',  data: sorted.map(function(r){ return r.available||0; }),       backgroundColor: '#10b981' },
+        { label: 'FC transfer',data: sorted.map(function(r){ return r.fcTransfer||0; }),      backgroundColor: '#6c8ef7' },
+        { label: 'Inbound',    data: sorted.map(function(r){ return (r.inboundWorking||0) + (r.inboundShipped||0); }), backgroundColor: '#f59e0b' },
+        { label: '3PL / 이동', data: sorted.map(function(r){ return (r.tpl||0) + (r.toAmz||0) + (r.transit||0) + (r.sea||0) + (r.air||0); }), backgroundColor: '#a78bfa' }
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: function(c){ return c.dataset.label + ': ' + (c.parsed.x||0).toLocaleString('en-US'); },
+            footer: function(items){
+              if (!items.length) return '';
+              var idx = items[0].dataIndex;
+              return '합계: ' + (sorted[idx].grandTotal||0).toLocaleString('en-US');
+            }
+          }
+        }
+      },
+      scales: {
+        x: { stacked: true, beginAtZero: true, grid: { color: 'rgba(15,23,42,0.05)' }, ticks: { callback: function(v){ return v.toLocaleString('en-US'); } } },
+        y: { stacked: true, grid: { display: false } }
+      }
+    }
+  });
+
+  // 테이블
+  function cell(n){ return n > 0 ? '<b>' + n.toLocaleString('en-US') + '</b>' : '<span style="color:#9ca3af">—</span>'; }
+  var html = '';
+  for (var i = 0; i < sorted.length; i++) {
+    var r = sorted[i];
+    var inboundSum = (r.inboundWorking||0) + (r.inboundShipped||0);
+    html += '<tr>' +
+      '<td style="font-weight:600">' + (r.name || '—') + '</td>' +
+      '<td style="font-family:monospace;font-size:11px;color:var(--muted)">' + (r.asin || '') + '</td>' +
+      '<td style="text-align:right">' + cell(r.available) + '</td>' +
+      '<td style="text-align:right">' + cell(r.fcTransfer) + '</td>' +
+      '<td style="text-align:right">' + cell(inboundSum) + '</td>' +
+      '<td style="text-align:right">' + cell(r.total) + '</td>' +
+      '<td style="text-align:right">' + cell(r.fcStock) + '</td>' +
+      '<td style="text-align:right;background:rgba(108,142,247,.05);font-weight:700;color:var(--blue)">' + ((r.grandTotal||0).toLocaleString('en-US')) + '</td>' +
+    '</tr>';
+  }
+  document.getElementById('invTableBody').innerHTML = html;
 }
 </script>
 </body>
