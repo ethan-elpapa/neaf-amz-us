@@ -795,7 +795,7 @@
   <!-- ① 제품별 판매 추세 (매출 상위 5개) -->
   <div class="card" style="margin-bottom:20px">
     <div class="card-title">
-      제품별 판매 추세 <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;margin-left:6px">— 매출 상위 5개</span>
+      제품별 판매 추세 <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;margin-left:6px">— 판매 개수 상위 5개 (Units)</span>
       <div class="toggle-row" style="margin:0">
         <button class="toggle-btn active" data-chart="productLines" data-agg="daily">일별</button>
         <button class="toggle-btn" data-chart="productLines" data-agg="weekly">주별</button>
@@ -1607,16 +1607,16 @@ function renderProductLines() {
   STATE.filtered.forEach(function(r){ allKeys[groupKey(r, agg)] = true; });
   var labels = Object.keys(allKeys).sort();
 
-  // ASIN별 키별 매출 합산
+  // ASIN별 키별 판매 개수(units) 합산
   var byAsin = {};
   STATE.filtered.forEach(function(r){
     if (!isKnownProduct(r.childAsin)) return;
     var k = groupKey(r, agg);
     if (!byAsin[r.childAsin]) byAsin[r.childAsin] = {};
-    byAsin[r.childAsin][k] = (byAsin[r.childAsin][k] || 0) + r.sales;
+    byAsin[r.childAsin][k] = (byAsin[r.childAsin][k] || 0) + r.units;
   });
 
-  // ASIN을 매출 합 내림차순 정렬 → 상위 5개만 표시 (차트 가독성)
+  // ASIN을 판매 개수 합 내림차순 정렬 → 상위 5개만 표시 (차트 가독성)
   var asins = Object.keys(byAsin).sort(function(a,b){
     var sa = 0, sb = 0;
     for (var k in byAsin[a]) sa += byAsin[a][k];
@@ -1639,7 +1639,7 @@ function renderProductLines() {
     };
   });
 
-  makeLineChart('chartProductLines', labels, datasets, function(v){ return fmt$(v); });
+  makeLineChart('chartProductLines', labels, datasets, function(v){ return fmtN(v) + ' EA'; });
 }
 
 function renderProductSales() {
