@@ -792,10 +792,10 @@
   <div id="view-product" class="view-section" style="display:none">
   <div class="section-header" style="font-size:18px;margin-top:0">제품별 대시보드</div>
 
-  <!-- ① 제품별 판매 추세 (전 제품 동시) -->
+  <!-- ① 제품별 판매 추세 (매출 상위 5개) -->
   <div class="card" style="margin-bottom:20px">
     <div class="card-title">
-      제품별 판매 추세
+      제품별 판매 추세 <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;margin-left:6px">— 매출 상위 5개</span>
       <div class="toggle-row" style="margin:0">
         <button class="toggle-btn active" data-chart="productLines" data-agg="daily">일별</button>
         <button class="toggle-btn" data-chart="productLines" data-agg="weekly">주별</button>
@@ -1616,13 +1616,13 @@ function renderProductLines() {
     byAsin[r.childAsin][k] = (byAsin[r.childAsin][k] || 0) + r.sales;
   });
 
-  // ASIN을 매출 합 내림차순 정렬
+  // ASIN을 매출 합 내림차순 정렬 → 상위 5개만 표시 (차트 가독성)
   var asins = Object.keys(byAsin).sort(function(a,b){
     var sa = 0, sb = 0;
     for (var k in byAsin[a]) sa += byAsin[a][k];
     for (var k in byAsin[b]) sb += byAsin[b][k];
     return sb - sa;
-  });
+  }).slice(0, 5);
 
   var datasets = asins.map(function(asin){
     var color = productColor(asin);
